@@ -1,101 +1,80 @@
 #pragma once
 
 #include <Servo.h>
+#include <math.h>
+#include <stdint.h>
 
-#include "util.hpp"
 #include "constants.hpp"
 
 namespace ralphee {
 
-// Arduino pin numbers
-static constexpr int32_t g_servoPins[] = {5, 3, 9, 6};
-// Prevents accidental mismatch between servopin size and init list.
-static constexpr size_t g_servoCount = sizeof(g_servoPins)/sizeof(g_servoPins[0]);
-
-typedef int8_t ServoSize;
-// Makes sure ServoSizeis large enough to not overflow
-static_assert(MAX_TYPE_SIZE(ServoSize) >= g_servoCount-1, "ServoIterator is too small!");
-
-static Servo g_servos[g_servoCount];  // Create servos
-
+// User-provided mapping, in the same FL, FR, RL, RR order as the geometry.
+static constexpr int32_t g_servoPins[WHEEL_COUNT] = {
+    3, // front left
+    5, // front right
+    6, // rear left ("bottom left")
+    9  // rear right ("bottom right")
+};
 typedef int16_t IntAngle;
-// Makes sure IntAngle is small enough to not underflow
-static_assert(MIN_TYPE_SIZE(IntAngle) <= static_cast<int>(MAX_ANGLE), "IntAngle isnt small enough!");
-// Makes sure IntAngle is large enough to not overflow
-static_assert(MAX_TYPE_SIZE(IntAngle) >= static_cast<int>(MAX_ANGLE), "IntAngle is too small!");
-//
-static_assert(static_cast<IntAngle>(-1) < 0, "IntAngle must be signed!");
-// Fixes incorrectly aligned hardware parts
-static constexpr IntAngle g_servoOffsets[4] = {1, 0, 0, 0};
 
-/**
- * @brief Writes servo angle to servo and eeprom
- * 
- * @param i index of servo
- * @param angle angle of servo
- */
-inline void writeServo(uint8_t i, IntAngle angle) {
-	g_servos[i].write(angle + g_servoOffsets[i]);
+// All trims reset at the user's request. Nominal neutral is 90 degrees.
+static constexpr IntAngle g_servoOffsets[WHEEL_COUNT] = {0, 0, 0, 0};
+
+// Unverified: replace each 0 with the measured +1 or -1 physical direction.
+static constexpr int8_t g_servoDirections[WHEEL_COUNT] = {0, 0, 0, 0};
+// Unverified: servo-degree change per wheel-heading degree; 0 means unset.
+static constexpr double g_servoDegreesPerWheelDegree[WHEEL_COUNT] = {0, 0, 0, 0};
+
+static Servo g_servos[WHEEL_COUNT];
+static bool g_servosInitialized = false;
+
+inline bool servoConfigurationReady() {
+    if (!STEERING_OUTPUT_ENABLED || !isfinite(STEERING_REFERENCE_ANGLE_RAD)
+            || STEERING_REFERENCE_ANGLE_RAD <= 0.0
+            || STEERING_REFERENCE_ANGLE_RAD >= HALF_PI_RAD) {
+        return false;
+    }
+    for (size_t i = 0; i < WHEEL_COUNT; ++i) {
+        if ((g_servoDirections[i] != 1 && g_servoDirections[i] != -1)
+                || !isfinite(g_servoDegreesPerWheelDegree[i])
+                || g_servoDegreesPerWheelDegree[i] <= 0.0) {
+            return false;
+        }
+    }
+    return true;
 }
 
-/**
- * @brief Attaches pins to servos and writes start angle to them
- * 
- */
-void initServos() {
-	// TODO: Prevent servo twitch if possible.
-	// https://forum.arduino.cc/t/easiest-way-to-avoid-servo-twitch-on-power-up/187028/14
-	for (ServoSize i = 0; i < static_cast<ServoSize>(g_servoCount); i++) { // Attach the servo to the defined pin
-		g_servos[i].attach(g_servoPins[i]);
-		writeServo(i, START_ANGLE);
-	}
+inline int8_t initServos() {
+    if (!servoConfigurationReady()) return -1;
+    for (size_t i = 0; i < WHEEL_COUNT; ++i) {
+        const IntAngle neutral = START_ANGLE + g_servoOffsets[i];
+        if (neutral < MIN_ANGLE || neutral > MAX_ANGLE) return -2;
+    }
+    for (size_t i = 0; i < WHEEL_COUNT; ++i) {
+        g_servos[i].attach(g_servoPins[i]);
+        g_servos[i].write(START_ANGLE + g_servoOffsets[i]);
+    }
+    g_servosInitialized = true;
+    return 0;
 }
 
-/**
- * @brief Writes new positions to servos based off ackerman steering equations. 
- * Graph of servo positions: https://www.desmos.com/calculator/hd0uh45qs2
- * 
- * @param valInner IntAngle angle in degrees
- * @param valOuter IntAngle angle in degrees
- * @param direction Direction of inner
- * 
- * @return int8_t
- */
-int8_t writeToServos(IntAngle valInner, IntAngle valOuter, Direction direction) {
-	if (90 + valInner > MAX_ANGLE) {
-		LOG("ERROR: 90 + "); LOG(valInner); LOG(" > "); LOGLN(MAX_ANGLE);
-		return -1;
-	}
-	if (90 - valInner < MIN_ANGLE) {
-		LOG("ERROR: 90 - "); LOG(valInner); LOG(" < "); LOGLN(MIN_ANGLE);
-		return -2;
-	}
-	if (90 + valOuter > MAX_ANGLE) {
-		LOG("ERROR: 90 + "); LOG(valOuter); LOG(" > "); LOGLN(MAX_ANGLE);
-		return -3;
-	}
-	if (90 - valOuter < MIN_ANGLE) {
-		LOG("ERROR: 90 - "); LOG(valOuter); LOG(" < "); LOGLN(MIN_ANGLE);
-		return -4;
-	}
-
-	if (direction == Direction::POSITIVE) {
-		if constexpr(g_servoCount >= 1) writeServo(0, 90+valInner);
-		if constexpr(g_servoCount >= 2) writeServo(1, 90+valOuter);
-		if constexpr(g_servoCount >= 3) writeServo(2, 90-valInner);
-		if constexpr(g_servoCount >= 4) writeServo(3, 90-valOuter);
-		
-		static_assert(g_servoCount <= 4, "Too many servos! writeToServos cant evaluate them.");
-	}
-	else {
-		if constexpr(g_servoCount >= 1) writeServo(0, 90-valOuter);
-		if constexpr(g_servoCount >= 2) writeServo(1, 90-valInner);
-		if constexpr(g_servoCount >= 3) writeServo(2, 90+valOuter);
-		if constexpr(g_servoCount >= 4) writeServo(3, 90+valInner);
-
-		static_assert(g_servoCount <= 4, "Too many servos! writeToServos cant evaluate them.");
-	}
-	return 0;
+/** Convert four wheel headings to servo degrees, then write all four servos. */
+inline int8_t writeToServos(const double* wheelAnglesRad) {
+    if (!g_servosInitialized || !servoConfigurationReady() || wheelAnglesRad == nullptr) {
+        return -1;
+    }
+    IntAngle commands[WHEEL_COUNT];
+    for (size_t i = 0; i < WHEEL_COUNT; ++i) {
+        if (!isfinite(wheelAnglesRad[i])) return -2;
+        const double wheelDegrees = wheelAnglesRad[i] * (90.0 / HALF_PI_RAD);
+        const double command = START_ANGLE + g_servoOffsets[i]
+            + g_servoDirections[i] * g_servoDegreesPerWheelDegree[i] * wheelDegrees;
+        // Check after calibration and trims, before rounding or any servo write.
+        if (!isfinite(command) || command < MIN_ANGLE || command > MAX_ANGLE) return -2;
+        commands[i] = static_cast<IntAngle>(lround(command));
+    }
+    for (size_t i = 0; i < WHEEL_COUNT; ++i) g_servos[i].write(commands[i]);
+    return 0;
 }
 
-} // namespace boden end
+} // namespace ralphee

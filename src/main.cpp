@@ -1,4 +1,4 @@
-#include <time.h>
+#include <stdlib.h>
 
 // Enables logging
 // #define LOGGING
@@ -10,37 +10,30 @@
 #include "constants.hpp"
 
 void setup() {
-	Serial.begin(9600);  // Start serial communication
-	ralphee::initServos();        // Initializes servos
-
-	LOG("Enter an angle [-1,1]:\n");
+    Serial.begin(9600);
+    if (ralphee::initServos() < 0) {
+        LOGLN("Steering output disabled: reference/directions/calibration need verification.");
+    }
+    LOG("Enter a normalized steering command [-1,1], followed by carriage return:\n");
 }
 
 void loop() {
     if (Serial.available() >= MIN_CHARS_IN_MESSAGE) {
-		char buffer[BUFFER_SIZE];
-		LOGLN("READ");
-		if (ralphee::read(buffer) < 0) {
-			return;
-		}
-        
-		// Cast input
-        double input = atof(buffer);
+        char buffer[BUFFER_SIZE];
+        if (ralphee::read(buffer) < 0) return;
 
-		LOG("Input: "); LOGLN(input);
+        char* end = nullptr;
+        const double input = strtod(buffer, &end);
+        if (end == buffer || *end != '\0') return;
 
-		// Calculate theta inner and outer
-		double angles[2];
-		if (ralphee::getThetaInnerAndOuter(input, angles) < 0) {
-			return;
-		}
-
-		// Get direction is rover turning
-		ralphee::Direction direction = input >= 0 ? ralphee::Direction::POSITIVE : ralphee::Direction::NEGATIVE;
-		// Write to servos
-        ralphee::writeToServos(
-			static_cast<ralphee::IntAngle>(angles[0]), 
-			static_cast<ralphee::IntAngle>(angles[1]), 
-			direction);
-    }   
+        double wheelAnglesRad[ralphee::WHEEL_COUNT];
+        if (ralphee::getWheelAngles(
+                input, ralphee::STEERING_REFERENCE_ANGLE_RAD, wheelAnglesRad) < 0) {
+            LOGLN("Invalid steering command or unconfigured reference angle.");
+            return;
+        }
+        if (ralphee::writeToServos(wheelAnglesRad) < 0) {
+            LOGLN("Steering output disabled or servo command outside configured bounds.");
+        }
+    }
 }
