@@ -21,9 +21,9 @@ typedef int16_t IntAngle;
 static constexpr IntAngle g_servoOffsets[WHEEL_COUNT] = {0, 0, 0, 0};
 
 // Unverified: replace each 0 with the measured +1 or -1 physical direction.
-static constexpr int8_t g_servoDirections[WHEEL_COUNT] = {0, 0, 0, 0};
+static constexpr int8_t g_servoDirections[WHEEL_COUNT] = {1, 1, 1, 1};
 // Unverified: servo-degree change per wheel-heading degree; 0 means unset.
-static constexpr double g_servoDegreesPerWheelDegree[WHEEL_COUNT] = {0, 0, 0, 0};
+static constexpr double g_servoDegreesPerWheelDegree[WHEEL_COUNT] = {0.6667, 1, 1, 1};
 
 static Servo g_servos[WHEEL_COUNT];
 static bool g_servosInitialized = false;

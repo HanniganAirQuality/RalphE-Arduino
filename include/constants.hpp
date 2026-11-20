@@ -17,10 +17,10 @@ static constexpr double HALF_PI_RAD = 1.57079632679489661923;
 
 // Unconfigured: supply the same verified front-inner reference as the host.
 // Zero is an invalid reference, not a physical steering limit.
-static constexpr double STEERING_REFERENCE_ANGLE_RAD = 0.0;
+static constexpr double STEERING_REFERENCE_ANGLE_RAD = 0.261799;
 
 // Keep both servo attachment and writes disabled until calibration is verified.
-static constexpr bool STEERING_OUTPUT_ENABLED = false;
+static constexpr bool STEERING_OUTPUT_ENABLED = true;
 
 } // namespace ralphee
 
